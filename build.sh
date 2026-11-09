@@ -50,16 +50,24 @@ cp -R "$SRC_DIR/zig-out/share/terminfo" "$STAGE_DIR/resources/terminfo"
 cp "$ROOT_DIR/LICENSE" "$ROOT_DIR/THIRD_PARTY.md" "$STAGE_DIR/"
 
 LIBRARY="$STAGE_DIR/GhosttyKit.xcframework/macos-arm64/libghostty-internal.a"
-test -f "$STAGE_DIR/resources/terminfo/78/xterm-ghostty"
-test ! -e "$STAGE_DIR/resources/ghostty/shell-integration"
-nm -gU "$LIBRARY" 2>/dev/null | grep -q '_ghostty_surface_process_output$'
-if ar -t "$LIBRARY" | grep -E -q '^(textdomain|dcigettext|bindtextdom)\.o$'; then
-  echo "libintl is linked into the library" >&2
+fail() {
+  echo "build.sh: $1" >&2
   exit 1
+}
+
+# Read these into files first: `grep -q` closes a pipe early, and under
+# pipefail the writer's SIGPIPE would fail the check.
+ar -t "$LIBRARY" > "$WORK_DIR/members.txt" || fail "cannot list $LIBRARY"
+nm -gU "$LIBRARY" > "$WORK_DIR/symbols.txt" 2>/dev/null || fail "cannot read symbols of $LIBRARY"
+
+test -f "$STAGE_DIR/resources/terminfo/78/xterm-ghostty" || fail "terminfo is missing"
+test ! -e "$STAGE_DIR/resources/ghostty/shell-integration" || fail "shell-integration is present"
+grep -q '_ghostty_surface_process_output$' "$WORK_DIR/symbols.txt" || fail "manual IO is not exported"
+if grep -E -q '^(textdomain|dcigettext|bindtextdom)\.o$' "$WORK_DIR/members.txt"; then
+  fail "libintl is linked into the library"
 fi
-if nm -gU "$LIBRARY" 2>/dev/null | grep -q '_sentry_init$'; then
-  echo "sentry is linked into the library" >&2
-  exit 1
+if grep -q '_sentry_init$' "$WORK_DIR/symbols.txt"; then
+  fail "sentry is linked into the library"
 fi
 
 COPYFILE_DISABLE=1 tar -C "$WORK_DIR" -czf "$DIST_DIR/ottam-ghostty.tar.gz" ottam-ghostty
