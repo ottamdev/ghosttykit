@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "ghostty-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-global-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .zig-global-cache
+          key: zig-global-${{ hashFiles('PIN', 'patches/ottam.patch') }}
+          restore-keys: zig-global-
+      - name: Install Zig
+        run: |
+          source PIN
+          archive="zig-aarch64-macos-$ZIG_VERSION"
+          curl --fail --show-error --location --retry 5 -o zig.tar.xz \
+            "https://ziglang.org/download/$ZIG_VERSION/$archive.tar.xz"
+          echo "$ZIG_SHA256  zig.tar.xz" | shasum -a 256 -c -
+          tar -xf zig.tar.xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$archive" >> "$GITHUB_PATH"
+      - name: Build
+        run: ./build.sh
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/ottam-ghostty.tar.gz \
+            dist/ottam-ghostty.tar.gz.sha256 \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Built from the commit in PIN plus patches/ottam.patch."
